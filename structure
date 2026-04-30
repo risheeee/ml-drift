@@ -1,0 +1,35 @@
+ml-drift-pipeline/
+│
+├── data/
+│   ├── raw/                        # creditcard.csv
+│   └── windows/                    # chronological splits (window_1 to window_6)
+│
+├── src/
+│   ├── features.py                 # feature engineering pipeline
+│   ├── train.py                    # training + MLflow logging
+│   ├── drift.py                    # PSI, KS test, rolling performance metrics
+│   ├── gates.py                    # validation gates before promoting model
+│   ├── simulate.py                 # inject drift into windows 4-6
+│   └── serve.py                    # FastAPI prediction endpoint
+│
+├── dags/
+│   ├── monitor_dag.py              # daily drift checks
+│   └── retrain_dag.py              # triggered when drift threshold breached
+│
+├── dashboard/
+│   └── app.py                      # Streamlit — drift plots, model history, metrics
+│
+├── notebooks/
+│   ├── 01_eda.ipynb
+│   └── 02_threshold_calibration.ipynb
+│
+├── configs/
+│   └── config.yaml                 # thresholds, window sizes, model params
+│
+├── tests/
+│   ├── test_drift.py
+│   └── test_gates.py
+│
+├── docker-compose.yml              # spins up Airflow + MLflow + API + Dashboard
+├── requirements.txt
+└── README.md
