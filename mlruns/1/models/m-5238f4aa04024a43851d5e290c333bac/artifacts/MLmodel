@@ -1,0 +1,23 @@
+artifact_path: file:C:/Users/Rishee/Desktop/Bhayankar Cheeze/ml-drift/mlruns/1/models/m-5238f4aa04024a43851d5e290c333bac/artifacts
+flavors:
+  python_function:
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.sklearn
+    model_path: model.pkl
+    predict_fn: predict
+    python_version: 3.12.7
+  sklearn:
+    code: null
+    pickled_model: model.pkl
+    serialization_format: cloudpickle
+    sklearn_version: 1.8.0
+    skops_trusted_types: null
+mlflow_version: 3.10.1
+model_id: m-5238f4aa04024a43851d5e290c333bac
+model_size_bytes: 240487
+model_uuid: m-5238f4aa04024a43851d5e290c333bac
+prompts: null
+run_id: 0ea5d8c30e624f629746b776c053bef5
+utc_time_created: '2026-05-01 10:33:12.846700'

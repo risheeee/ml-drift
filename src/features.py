@@ -38,7 +38,7 @@ class FeatureSelector(BaseEstimator, TransformerMixin):
         missing = set(self.feature_names) - set(X.columns)
         if missing:
             raise ValueError(f"Missing features at inference time: {missing}. Possible upstream schema drift.")
-        return X[self.feature_names_].values
+        return X[self.feature_names].values
     
     def get_feature_names(self) -> list[str]:
         return self.feature_names

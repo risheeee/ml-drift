@@ -1,0 +1,45 @@
+drift:
+  thresholds:
+    psi: 0.20           # > 0.20 triggers retraining (calibrated against Window 4 rotation_angle=0.3 → PSI ~0.24)
+    ks_pvalue: 0.01     # p < 0.01 is secondary signal (0.01 not 0.05 to reduce false positives)
+    ks_stat: 0.15
+    score_psi: 0.15     # proxy metric when labels are delayed
+  min_features_triggered: 2
+  rolling_window: 3
+
+gates:
+  auprc:
+    min_improvement: 0.01      # challenger must beat champion by 1 AUPRC point
+    min_auprc_floor: 0.75      # absolute floor for first model (baseline ~0.82, 5% margin)
+  recall_at_fpr:
+    target_fpr: 0.05
+    max_regression: 0.02       # allow up to 2% recall regression (noise tolerance)
+    min_recall_floor: 0.70
+  stability:
+    max_score_psi: 0.30        # high PSI here = training ran differently, not just improved
+  latency:
+    max_latency_ms: 100
+
+model:
+  default_params:
+    n_estimators: 200
+    max_depth: 4
+    learning_rate: 0.05
+    subsample: 0.8
+    min_samples_leaf: 20
+  hpo:
+    n_trials: 30
+    cv_folds: 3
+
+pipeline:
+  start_window: 1
+  total_windows: 6
+  baseline_windows: [1, 2, 3]
+  initial_training_windows: 3
+  monitor_schedule: "0 6 * * *"
+
+serving:
+  host: "0.0.0.0"
+  port: 8000
+  fraud_threshold: 0.5
+  reload_endpoint: "http://localhost:8000/model/reload"

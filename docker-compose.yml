@@ -1,0 +1,42 @@
+version: "3.9"
+
+x-env: &env
+  MLFLOW_TRACKING_URI: http://mlflow:5000
+  PYTHONPATH: /app/src
+
+services:
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.9.2
+    ports: ["5000:5000"]
+    volumes: [mlflow_data:/mlflow]
+    command: >
+      mlflow server --host 0.0.0.0 --port 5000
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --default-artifact-root /mlflow/artifacts
+
+  api:
+    build: { context: ., dockerfile: docker/Dockerfile.api }
+    ports: ["8000:8000"]
+    volumes: [./data:/app/data, ./models:/app/models, ./configs:/app/configs, ./src:/app/src]
+    environment: { <<: *env }
+    depends_on: [mlflow]
+
+  dashboard:
+    build: { context: ., dockerfile: docker/Dockerfile.dashboard }
+    ports: ["8501:8501"]
+    volumes: [./data:/app/data, ./configs:/app/configs, ./src:/app/src, ./dashboard:/app/dashboard]
+    environment: { <<: *env }
+    depends_on: [mlflow]
+
+  airflow:
+    image: apache/airflow:2.7.3
+    ports: ["8080:8080"]
+    volumes: [./dags:/opt/airflow/dags, ./data:/app/data, ./models:/app/models, ./configs:/app/configs, ./src:/app/src]
+    environment:
+      <<: *env
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: sqlite:////airflow/airflow.db
+    command: airflow standalone
+
+volumes:
+  mlflow_data:

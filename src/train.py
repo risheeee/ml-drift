@@ -10,18 +10,21 @@ import mlflow.sklearn
 import joblib
 import logging
 import yaml
-from datetime import datetime
- 
+from datetime import datetime, timezone
+
 import features as feat_module
- 
+
 logger = logging.getLogger(__name__)
 
 WINDOWS_PATH = Path("data/windows")
 MODEL_DIR = Path("models")
 CONFIG_PATH = Path("configs/config.yaml")
+MLFLOW_URI = "http://127.0.0.1:5000"
+
 
 def load_config() -> dict:
     with open(CONFIG_PATH) as f: return yaml.safe_load(f)
+
 
 def load_training_data(up_to_window: int) -> pd.DataFrame:
     """Point-in-time correct: only use windows that existed before the trigger."""
@@ -34,23 +37,26 @@ def load_training_data(up_to_window: int) -> pd.DataFrame:
     logger.info(f"Loaded {len(df)} rows from windows 1-{up_to_window}")
     return df
 
+
 def recall_at_fpr(y_true: np.ndarray, y_score: np.ndarray, target_fpr: float = 0.05) -> float:
-    fpr, tpr = roc_curve(y_true, y_score)
-    idx = np.searchsorted(fpr, tpr)
-    return float(tpr[min(idx, len(tpr) - 1)])
+    """Business metric: catch rate while keeping false alarms under target_fpr."""
+    fpr_arr, tpr_arr, _thresholds = roc_curve(y_true, y_score)
+    idx = np.searchsorted(fpr_arr, target_fpr)
+    return float(tpr_arr[min(idx, len(tpr_arr) - 1)])
+
 
 def compute_metrics(y_true: np.ndarray, y_score: np.ndarray) -> dict:
     y_pred = (y_score >= 0.5).astype(int)
     return {
         "auprc": average_precision_score(y_true, y_score),
         "auroc": roc_auc_score(y_true, y_score),
-        "f1": f1_score(y_true, y_pred, zero_division = 0),
+        "f1": f1_score(y_true, y_pred, zero_division=0),
         "recall_at_5pct_fpr": recall_at_fpr(y_true, y_score, 0.05),
     }
 
-def objective(trial: optuna.Trial, X: np.ndarray, y: np.ndarray) -> float:
-    """optuna for maximizing auprc"""
 
+def objective(trial: optuna.Trial, X: np.ndarray, y: np.ndarray) -> float:
+    """Optuna objective: maximize AUPRC via stratified 3-fold CV."""
     params = {
         "n_estimators": trial.suggest_int("n_estimators", 100, 500),
         "max_depth": trial.suggest_int("max_depth", 3, 7),
@@ -58,24 +64,29 @@ def objective(trial: optuna.Trial, X: np.ndarray, y: np.ndarray) -> float:
         "subsample": trial.suggest_float("subsample", 0.6, 1.0),
         "min_samples_leaf": trial.suggest_int("min_samples_leaf", 10, 50),
     }
-    skf = StratifiedKFold(n_splits = 3, shuffle = True, random_state = 37)
+    skf = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
     scores = []
     for train_idx, val_idx in skf.split(X, y):
-        model = GradientBoostingClassifier(**params, random_state = 37)
+        model = GradientBoostingClassifier(**params, random_state=42)
         model.fit(X[train_idx], y[train_idx])
         scores.append(average_precision_score(y[val_idx], model.predict_proba(X[val_idx])[:, 1]))
     return np.mean(scores)
 
-def train(up_to_window: int = 3, run_hpo: bool = True, n_trials: int = 30, trigger_reason: str = "initial_training") -> str:
+
+def train(up_to_window: int = 3, run_hpo: bool = True, n_trials: int = 30,
+          trigger_reason: str = "initial_training") -> str:
     config = load_config()
-    MODEL_DIR.mkdir(parents = True, exist_ok = True)
+    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Explicitly point to the running MLflow server so the Model Registry works
+    mlflow.set_tracking_uri(MLFLOW_URI)
     mlflow.set_experiment("fraud-drift-pipeline")
 
     with mlflow.start_run() as run:
         run_id = run.info.run_id
         mlflow.set_tag("trigger_reason", trigger_reason)
         mlflow.set_tag("trained_on_windows", f"1-{up_to_window}")
-        mlflow.set_tag("timestamp", datetime.utcnow().isoformat())
+        mlflow.set_tag("timestamp", datetime.now(timezone.utc).isoformat())
 
         df = load_training_data(up_to_window)
         pipeline = feat_module.fit_and_save(df)
@@ -96,7 +107,7 @@ def train(up_to_window: int = 3, run_hpo: bool = True, n_trials: int = 30, trigg
             best_params = config["model"]["default_params"]
 
         mlflow.log_params(best_params)
-        model = GradientBoostingClassifier(**best_params, random_state = 37)
+        model = GradientBoostingClassifier(**best_params, random_state=42)
         model.fit(X, y)
 
         holdout_df = df.iloc[int(len(df) * 0.8):]
@@ -104,14 +115,17 @@ def train(up_to_window: int = 3, run_hpo: bool = True, n_trials: int = 30, trigg
         metrics = compute_metrics(y_hold, model.predict_proba(X_hold)[:, 1])
         mlflow.log_metrics(metrics)
         logger.info(f"Holdout metrics: {metrics}")
- 
+
         model_path = MODEL_DIR / f"model_{run_id}.joblib"
         joblib.dump(model, model_path)
         mlflow.sklearn.log_model(model, "model")
+
+        # Register model — requires MLFLOW_URI to point to a server, not local filesystem
         mlflow.register_model(f"runs:/{run_id}/model", "fraud-detector")
- 
-        logger.info(f"Training complete. Run ID: {run_id}")
+        logger.info(f"Model registered. Run ID: {run_id}")
         return run_id
-    
+
+
 if __name__ == "__main__":
-    train(up_to_window = 3, run_hpo = False)
+    logging.basicConfig(level=logging.INFO)
+    train(up_to_window=3, run_hpo=False)
